@@ -1,0 +1,23 @@
+name: matrix
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: v4.3.0
+      - uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+      - name: Verifiers
+        run: bash ci/matrix.sh
