@@ -62,5 +62,13 @@ jobs:
           docker build -q --build-arg APP_VERSION=unsigned -t "$IMG:unsigned" app && docker push -q "$IMG:unsigned"
           docker build -q --build-arg APP_VERSION=nosbom -t "$IMG:nosbom" app && docker push -q "$IMG:nosbom"
           cosign sign --yes "$IMG@$(docker buildx imagetools inspect "$IMG:nosbom" --format '{{json .Manifest}}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')"
+      - name: The same, signed in cosign's older signature format
+        run: |
+          docker build -q --build-arg APP_VERSION=legacy -t "$IMG:legacy" app && docker push -q "$IMG:legacy"
+          L=$(docker buildx imagetools inspect "$IMG:legacy" --format '{{json .Manifest}}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')
+          syft "$IMG@$L" -o spdx-json=legacy.spdx.json -q
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false "$IMG@$L"
+          cosign attest --yes --new-bundle-format=false --use-signing-config=false --type spdxjson --predicate legacy.spdx.json "$IMG@$L"
+          cosign tree "$IMG@$L" 2>/dev/null | head -n 8
       - name: Gate demonstrations (each is expected to fail)
         run: bash ci/gate-demos.sh

@@ -5,14 +5,14 @@ source ci/lib.sh
 ID="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/build.yml@refs/heads/main"
 ISS="https://token.actions.githubusercontent.com"
 dig() { docker buildx imagetools inspect "$IMG:$1" --format '{{json .Manifest}}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])'; }
-GOOD=$(dig v3.0.0); UNS=$(dig unsigned); NOSBOM=$(dig nosbom); OTHER=$(dig other)
+GOOD=$(dig v3.0.0); UNS=$(dig unsigned); NOSBOM=$(dig nosbom); OTHER=$(dig other); LEGACY=$(dig legacy)
 echo "digests: v3.0.0=${GOOD:7:12} unsigned=${UNS:7:12} nosbom=${NOSBOM:7:12} other=${OTHER:7:12}"
 histlen() { kubectl get application "$1" -n argocd -o jsonpath='{.status.history}' | python3 -c 'import json,sys; print(len(json.load(sys.stdin) or []))' 2>/dev/null; }
 try() { # try NS NAME IMAGE: create a pod and report what admission said
   local out
   out=$(kubectl run "$2" -n "$1" --image="$3" --restart=Never 2>&1)
   if [ $? -eq 0 ]; then echo "$2: ADMITTED as $(kubectl get pod "$2" -n "$1" -o jsonpath='{.spec.containers[0].image}' | sed 's/@sha256:\(.\{12\}\).*/@sha256:\1.../')"
-  else echo "$2: REJECTED: $(echo "$out" | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-330)"; fi
+  else echo "$2: REJECTED: $(echo "$out" | tr '\n' ' ' | sed 's/  */ /g' | sed 's/.*blocked due to the following policies //' | cut -c1-700)"; fi
 }
 
 fallback() { # if a child is stuck, show its diff and apply the remaining Applications directly
@@ -43,6 +43,7 @@ kubectl apply -f deploy/bootstrap/root.yaml >/dev/null
 waitall $APPS 420 | tail -n 3
 fallback
 kubectl get applications -n argocd
+for a in mission-staging policies; do echo "$a: op=$(kubectl get application $a -n argocd -o jsonpath='{.status.operationState.phase} {.status.operationState.message}' | cut -c1-400) conditions=$(kubectl get application $a -n argocd -o jsonpath='{range .status.conditions[*]}{.type}: {.message}; {end}' | cut -c1-400)"; done
 for a in $(kubectl get applications -n argocd -o jsonpath='{range .items[?(@.status.sync.status!="Synced")]}{.metadata.name} {end}'); do echo "$a OutOfSync: $(kubectl get application $a -n argocd -o jsonpath='{range .status.resources[?(@.status=="OutOfSync")]}{.kind}/{.name} {end}' | cut -c1-300)"; done
 echo "Kyverno webhooks: $(kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o name | grep -i kyverno | tr '\n' ' ')"
 echo "webhook namespaceSelector: $(kubectl get validatingwebhookconfiguration kyverno-resource-validating-webhook-cfg -o jsonpath='{.webhooks[0].namespaceSelector}' 2>/dev/null | cut -c1-250) failurePolicy=$(kubectl get validatingwebhookconfiguration kyverno-resource-validating-webhook-cfg -o jsonpath='{.webhooks[0].failurePolicy}' 2>/dev/null)"
@@ -72,13 +73,15 @@ try verify e-good-digest "$IMG@$GOOD"
 try verify e-unsigned "$IMG@$UNS"
 try verify e-nosbom "$IMG@$NOSBOM"
 try verify e-other "$IMG@$OTHER"
+try verify e-legacy "$IMG@$LEGACY"
+if kubectl get pod e-legacy -n verify >/dev/null 2>&1 && ! kubectl get pod e-good-digest -n verify >/dev/null 2>&1; then echo "ONLY the older signature format is accepted: using the legacy image for GitOps"; GOOD=$LEGACY; GTAG=legacy; else GTAG=v3.0.0; fi
 try verify e-latest "$IMG:latest"
 try verify e-busybox busybox:latest
 try verify e-notag busybox
 kubectl delete pod -n verify --all --wait=false >/dev/null 2>&1
 
 H "K5. GitOps by digest"
-setval staging image.tag "v3.0.0@$GOOD"
+setval staging image.tag "${GTAG}@$GOOD"
 REV=$(push "Staging: v3.0.0 by digest"); refresh mission-staging
 waitapp mission-staging Synced Healthy "$REV" 300
 H0=$(histlen mission-staging); sleep 60
@@ -99,7 +102,10 @@ kubectl scale statefulset argocd-application-controller -n argocd --replicas=0 >
 kubectl scale deployment kyverno-admission-controller -n kyverno --replicas=0 >/dev/null
 kubectl wait --for=delete pod -n kyverno -l app.kubernetes.io/component=admission-controller --timeout=120s >/dev/null 2>&1
 sleep 5
+echo "webhooks while Kyverno is down: $(kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o name | grep -ci kyverno) Kyverno webhook configurations; resource webhook failurePolicy=$(kubectl get validatingwebhookconfiguration kyverno-resource-validating-webhook-cfg -o jsonpath='{.webhooks[*].failurePolicy}' 2>&1 | cut -c1-80)"
+echo "admission endpoints: $(kubectl get endpointslices -n kyverno -l kubernetes.io/service-name=kyverno-svc -o jsonpath='{.items[*].endpoints}' | cut -c1-80)"
 try verify d-good "$IMG@$GOOD"
+try verify d-unsigned "$IMG@$UNS"
 kubectl create namespace scratch >/dev/null
 try scratch d-busybox busybox:1.37.0
 try kube-system d-kube-system busybox:1.37.0
@@ -116,6 +122,7 @@ kubectl delete pod -n verify --all --wait=false >/dev/null 2>&1; kubectl delete 
 
 H "S1. A sealed secret"
 kubectl rollout status deployment sealed-secrets-controller -n kube-system --timeout=120s >/dev/null
+mkdir -p deploy/secrets/staging
 kubeseal --controller-namespace kube-system --fetch-cert > /tmp/cert.pem && echo "certificate fetched: $(openssl x509 -in /tmp/cert.pem -noout -subject -enddate | tr '\n' ' ')"
 VAL=$(openssl rand -hex 16); echo "::add-mask::$VAL"
 VHASH=$(printf '%s' "$VAL" | sha256sum | cut -c1-12)
