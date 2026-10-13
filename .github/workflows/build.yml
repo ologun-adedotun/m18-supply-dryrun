@@ -31,7 +31,9 @@ jobs:
       - name: Tools, checked against published checksums
         run: bash ci/tools.sh
       - name: No secrets in the repository
-        run: gitleaks dir . --redact --no-banner --exit-code 1 && echo "gitleaks: no leaks found"
+        run: |
+          gitleaks dir . --redact --no-banner --exit-code 1
+          echo "gitleaks found no leaks"
       - name: Vulnerability exceptions are current
         run: python3 ci/check-exceptions.py security/exceptions.yaml /tmp/grype-ignore.yaml
       - name: Build and push
