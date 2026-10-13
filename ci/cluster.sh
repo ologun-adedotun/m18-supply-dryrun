@@ -18,11 +18,11 @@ try() { # try NS NAME IMAGE: create a pod and report what admission said
 H "V. Verification outside the cluster"
 cosign verify "$IMG@$GOOD" --certificate-identity "$ID" --certificate-oidc-issuer "$ISS" -o json 2>/tmp/v.err | python3 -c 'import json,sys; d=json.load(sys.stdin); print("v3.0.0 signature verified:", len(d), "signature(s); subject", d[0]["optional"].get("Subject"))'
 tail -n 3 /tmp/v.err
-echo "other.yml's image against our identity: $(cosign verify "$IMG@$OTHER" --certificate-identity "$ID" --certificate-oidc-issuer "$ISS" 2>&1 | tail -n 1 | cut -c1-250)"
+echo "other.yml's image against our identity: $(cosign verify "$IMG@$OTHER" --certificate-identity "$ID" --certificate-oidc-issuer "$ISS" 2>&1 | tail -n 1 | grep -oE 'got [^,]*|expected SAN value [^,]*' | head -n 2 | tr '\n' ' ')"
 echo "other.yml's image, its real identity: $(cosign verify "$IMG@$OTHER" --certificate-identity-regexp '.*' --certificate-oidc-issuer "$ISS" -o json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["optional"].get("Subject"))')"
 echo "unsigned: $(cosign verify "$IMG@$UNS" --certificate-identity "$ID" --certificate-oidc-issuer "$ISS" 2>&1 | tail -n 1 | cut -c1-200)"
 cosign verify-attestation "$IMG@$GOOD" --type spdxjson --certificate-identity "$ID" --certificate-oidc-issuer "$ISS" -o json 2>/dev/null | head -n 1 | python3 -c 'import json,sys,base64; e=json.loads(sys.stdin.readline()); p=json.loads(base64.b64decode(e["payload"])); print("SBOM attestation:", p["predicateType"], p["predicate"].get("spdxVersion"), len(p["predicate"].get("packages",[])), "packages")'
-echo "provenance: $(gh attestation verify "oci://$IMG@$GOOD" --owner "${GITHUB_REPOSITORY%%/*}" 2>&1 | grep -iE 'verified|predicate|✓|error' | head -n 3 | tr '\n' ' ' | cut -c1-300)"
+echo "provenance:"; gh attestation verify "oci://$IMG@$GOOD" --owner "${GITHUB_REPOSITORY%%/*}" 2>&1 | tail -n 8 | cut -c1-160
 echo "what hangs off the image:"; cosign tree "$IMG@$GOOD" 2>/dev/null | grep -E 'Signatures|Attestations|SBOMs|└|├' | cut -c1-120 | head -n 8
 
 H "K1. Platform from Git (image policy in Audit)"
@@ -30,6 +30,7 @@ installargo
 kubectl apply -f deploy/bootstrap/root.yaml >/dev/null
 waitall $APPS 900 | tail -n 3
 kubectl get applications -n argocd
+for a in $(kubectl get applications -n argocd -o jsonpath='{range .items[?(@.status.sync.status!="Synced")]}{.metadata.name} {end}'); do echo "$a OutOfSync: $(kubectl get application $a -n argocd -o jsonpath='{range .status.resources[?(@.status=="OutOfSync")]}{.kind}/{.name} {end}' | cut -c1-300)"; done
 echo "Kyverno webhooks: $(kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o name | grep -i kyverno | tr '\n' ' ')"
 echo "webhook namespaceSelector: $(kubectl get validatingwebhookconfiguration kyverno-resource-validating-webhook-cfg -o jsonpath='{.webhooks[0].namespaceSelector}' 2>/dev/null | cut -c1-250) failurePolicy=$(kubectl get validatingwebhookconfiguration kyverno-resource-validating-webhook-cfg -o jsonpath='{.webhooks[0].failurePolicy}' 2>/dev/null)"
 

@@ -12,6 +12,10 @@ notifications:
 configs:
   cm:
     admin.enabled: true
+    # Aggregated ClusterRoles (Kyverno ships several) get their rules filled in by Kubernetes.
+    # Without this they are OutOfSync forever, and the stricter health check below waits forever.
+    resource.compareoptions: |
+      ignoreAggregatedRoles: true
     # A local account that can log in and look, nothing more.
     accounts.trainer: login
     # A local account that may only look, and resume a paused Rollout.
