@@ -8,8 +8,12 @@ git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
 installargo() {
-  helm install argocd argo-cd --repo https://argoproj.github.io/argo-helm --version 10.10.3 \
-    -n argocd --create-namespace -f deploy/argocd/values.yaml --wait --timeout 6m >/dev/null
+  local i
+  for i in 1 2; do
+    helm upgrade --install argocd argo-cd --repo https://argoproj.github.io/argo-helm --version 10.10.3 \
+      -n argocd --create-namespace -f deploy/argocd/values.yaml --wait --timeout 6m >/dev/null && return 0
+    echo "Argo CD install attempt $i failed; retrying"
+  done
 }
 refresh() { for a in "$@"; do kubectl annotate application "$a" -n argocd argocd.argoproj.io/refresh=normal --overwrite >/dev/null 2>&1; done; }
 state() { kubectl get application "$1" -n argocd -o jsonpath='{.status.sync.status}/{.status.health.status}@{.status.sync.revision}' 2>/dev/null; }

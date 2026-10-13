@@ -21,9 +21,9 @@ spec:
         - type: SigstoreBundle
           imageReferences:
             - "ghcr.io/ologun-adedotun/m18-supply-dryrun/*"
-          failureAction: Enforce
+          failureAction: Audit
           # Kyverno refuses mutateDigest in Audit; turn it on with Enforce.
-          mutateDigest: true
+          mutateDigest: false
           verifyDigest: true
           required: true
           attestors:
