@@ -19,6 +19,11 @@ spec:
       valuesObject:
         admissionController:
           replicas: 1
+          container:
+            extraArgs:
+              # Off by default: without it Kyverno trusts a stale built-in Sigstore root.
+              enableTuf: "true"
+              tufMirror: https://tuf-repo-cdn.sigstore.dev
   destination:
     server: https://kubernetes.default.svc
     namespace: kyverno

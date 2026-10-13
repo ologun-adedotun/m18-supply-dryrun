@@ -16,10 +16,13 @@ spec:
               kinds: [Pod]
               namespaces: [staging, production, verify]
       verifyImages:
-        - imageReferences:
+        # cosign v3 signs in the Sigstore bundle format; the classic check finds nothing.
+        - type: SigstoreBundle
+          imageReferences:
             - "ghcr.io/ologun-adedotun/m18-supply-dryrun/*"
           failureAction: Audit
-          mutateDigest: true
+          # Kyverno refuses mutateDigest in Audit; turn it on with Enforce.
+          mutateDigest: false
           verifyDigest: true
           required: true
           attestors:

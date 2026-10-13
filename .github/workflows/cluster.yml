@@ -1,6 +1,9 @@
 name: cluster
 on:
   workflow_dispatch:
+    inputs:
+      script:
+        default: cluster.sh
 
 permissions: {}
 
@@ -26,7 +29,7 @@ jobs:
       - name: Tools, checked against published checksums
         run: bash ci/tools.sh
       - name: Experiments
-        run: bash ci/cluster.sh
+        run: bash "ci/${{ inputs.script }}"
 
   scorecard:
     runs-on: ubuntu-latest
