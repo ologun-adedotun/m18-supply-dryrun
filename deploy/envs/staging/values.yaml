@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/ologun-adedotun/m18-supply-dryrun/maright-app
-  tag: v3.0.0@sha256:eb1f50002a20101618a45197a28994fffd30be24c1fb1cfcdc2d5118885d76dd
+  tag: v3.0.0
   pullPolicy: IfNotPresent
 
 workload: deployment

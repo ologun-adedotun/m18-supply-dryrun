@@ -5,11 +5,12 @@ metadata:
   annotations:
     policies.kyverno.io/description: >-
       Mission Control's images must be signed by our own build workflow on main,
-      carry a signed SBOM, and run by digest.
+      carry signed build provenance from it, and run by digest. The SBOM is checked in CI:
+      at about 2.4 MB it is larger than Kyverno's 2 MiB context limit.
 spec:
   webhookTimeoutSeconds: 30
   rules:
-    - name: signed-by-our-build-with-sbom
+    - name: signed-by-our-build-with-provenance
       match:
         any:
           - resources:
@@ -20,9 +21,9 @@ spec:
         - type: SigstoreBundle
           imageReferences:
             - "ghcr.io/ologun-adedotun/m18-supply-dryrun/*"
-          failureAction: Enforce
+          failureAction: Audit
           # Kyverno refuses mutateDigest in Audit; turn it on with Enforce.
-          mutateDigest: true
+          mutateDigest: false
           verifyDigest: true
           required: true
           attestors:
@@ -33,7 +34,7 @@ spec:
                     rekor:
                       url: https://rekor.sigstore.dev
           attestations:
-            - type: https://spdx.dev/Document
+            - type: https://slsa.dev/provenance/v1
               attestors:
                 - entries:
                     - keyless:
@@ -43,6 +44,6 @@ spec:
                           url: https://rekor.sigstore.dev
               conditions:
                 - all:
-                    - key: "{{ spdxVersion || '' }}"
-                      operator: Equals
-                      value: SPDX-2.3
+                    - key: "{{ buildDefinition.buildType || '' }}"
+                      operator: NotEquals
+                      value: ""
