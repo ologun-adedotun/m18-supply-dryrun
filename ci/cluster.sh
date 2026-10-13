@@ -15,6 +15,17 @@ try() { # try NS NAME IMAGE: create a pod and report what admission said
   else echo "$2: REJECTED: $(echo "$out" | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-330)"; fi
 }
 
+fallback() { # if a child is stuck, show its diff and apply the remaining Applications directly
+  if [ "$(kubectl get application kyverno -n argocd -o jsonpath='{.status.sync.status}')" != Synced ]; then
+    echo "kyverno still OutOfSync; first lines of its diff:"
+    kubectl config set-context --current --namespace=argocd >/dev/null
+    argocd app diff kyverno --core 2>&1 | head -n 40
+    kubectl config set-context --current --namespace=default >/dev/null
+    echo "FALLBACK: applying the remaining platform Applications directly"
+    kubectl apply -f deploy/platform/ >/dev/null
+    waitall 7 600 | tail -n 2
+  fi
+}
 H "V. Verification outside the cluster"
 cosign verify "$IMG@$GOOD" --certificate-identity "$ID" --certificate-oidc-issuer "$ISS" -o json 2>/tmp/v.err | python3 -c 'import json,sys; d=json.load(sys.stdin); print("v3.0.0 signature verified:", len(d), "signature(s); subject", d[0]["optional"].get("Subject"))'
 tail -n 3 /tmp/v.err
@@ -26,9 +37,11 @@ echo "provenance:"; gh attestation verify "oci://$IMG@$GOOD" --owner "${GITHUB_R
 echo "what hangs off the image:"; cosign tree "$IMG@$GOOD" 2>/dev/null | grep -E 'Signatures|Attestations|SBOMs|└|├' | cut -c1-120 | head -n 8
 
 H "K1. Platform from Git (image policy in Audit)"
+curl -sSL -o /tmp/argocd https://github.com/argoproj/argo-cd/releases/download/v3.5.5/argocd-linux-amd64 && sudo install -m 0755 /tmp/argocd /usr/local/bin/argocd
 installargo
 kubectl apply -f deploy/bootstrap/root.yaml >/dev/null
-waitall $APPS 900 | tail -n 3
+waitall $APPS 420 | tail -n 3
+fallback
 kubectl get applications -n argocd
 for a in $(kubectl get applications -n argocd -o jsonpath='{range .items[?(@.status.sync.status!="Synced")]}{.metadata.name} {end}'); do echo "$a OutOfSync: $(kubectl get application $a -n argocd -o jsonpath='{range .status.resources[?(@.status=="OutOfSync")]}{.kind}/{.name} {end}' | cut -c1-300)"; done
 echo "Kyverno webhooks: $(kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o name | grep -i kyverno | tr '\n' ' ')"
@@ -127,7 +140,8 @@ kind delete cluster --name chart-testing >/dev/null 2>&1
 T0=$(now)
 kind create cluster --name rebuild --wait 120s >/dev/null 2>&1
 installargo; kubectl apply -f deploy/bootstrap/root.yaml >/dev/null
-waitall 7 600 | tail -n 2
+waitall 7 420 | tail -n 2
+fallback
 echo "rebuilt in $(( $(now) - T0 ))s"
 for i in $(seq 12); do m=$(kubectl get sealedsecret mission-api -n staging -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.message}{end}' 2>/dev/null); [ -n "$m" ] && break; sleep 5; done
 echo "sealed secret: ${m:-no status} | Secret: $(kubectl get secret mission-api -n staging --no-headers 2>&1 | cut -c1-60)"
