@@ -1,0 +1,7 @@
+# Used by the test to prove the checker refuses an expired exception.
+exceptions:
+  - vulnerability: CVE-2099-0001
+    package: example-package
+    reason: Not reachable from our code; the vulnerable function is never imported.
+    owner: platform-team
+    expires: 2026-01-31

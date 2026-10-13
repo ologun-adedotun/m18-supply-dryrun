@@ -1,0 +1,5 @@
+fastapi==0.143.0
+uvicorn==0.54.0
+prometheus-client==0.26.0
+# Deliberately old, for the gate demonstration only.
+requests==2.19.1

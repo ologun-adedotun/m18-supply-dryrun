@@ -1,0 +1,31 @@
+{{- $name := include "maright-app.fullname" . }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "maright-app.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "maright-app.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+{{- if ne .Values.workload "deployment" }}
+---
+# The Rollout points this Service at its new pods: canary, or blue-green's preview.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-{{ ternary "canary" "preview" (eq .Values.rollout.strategy "canary") }}
+  labels:
+    {{- include "maright-app.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "maright-app.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+{{- end }}

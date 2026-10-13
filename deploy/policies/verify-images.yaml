@@ -1,0 +1,45 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-mission-images
+  annotations:
+    policies.kyverno.io/description: >-
+      Mission Control's images must be signed by our own build workflow on main,
+      carry a signed SBOM, and run by digest.
+spec:
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: signed-by-our-build-with-sbom
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [staging, production, verify]
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/ologun-adedotun/m18-supply-dryrun/*"
+          failureAction: Audit
+          mutateDigest: true
+          verifyDigest: true
+          required: true
+          attestors:
+            - entries:
+                - keyless:
+                    subject: "https://github.com/ologun-adedotun/m18-supply-dryrun/.github/workflows/build.yml@refs/heads/main"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor:
+                      url: https://rekor.sigstore.dev
+          attestations:
+            - type: https://spdx.dev/Document
+              attestors:
+                - entries:
+                    - keyless:
+                        subject: "https://github.com/ologun-adedotun/m18-supply-dryrun/.github/workflows/build.yml@refs/heads/main"
+                        issuer: "https://token.actions.githubusercontent.com"
+                        rekor:
+                          url: https://rekor.sigstore.dev
+              conditions:
+                - all:
+                    - key: "{{ spdxVersion || '' }}"
+                      operator: Equals
+                      value: SPDX-2.3

@@ -1,0 +1,17 @@
+{{- if has .Values.workload (list "deployment" "migrate") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "maright-app.fullname" . }}
+  labels:
+    {{- include "maright-app.labels" . | nindent 4 }}
+spec:
+  {{- if and (eq .Values.workload "deployment") (not .Values.autoscaling.enabled) }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "maright-app.selectorLabels" . | nindent 6 }}
+  template:
+    {{- include "maright-app.podTemplate" . | nindent 4 }}
+{{- end }}

@@ -1,0 +1,3 @@
+# Accepted vulnerabilities. Every entry needs a reason, an owner and an expiry date.
+# An expired entry fails the build: decide again, do not let it rot.
+exceptions: []

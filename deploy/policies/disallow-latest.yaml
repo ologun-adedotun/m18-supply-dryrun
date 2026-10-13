@@ -1,0 +1,26 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+spec:
+  rules:
+    - name: no-latest
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [staging, production, verify]
+      validate:
+        failureAction: Enforce
+        message: "Images must name a version or a digest, never latest or no tag at all."
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.image }}"
+                    operator: Equals
+                    value: "*:latest"
+                  - key: "{{ contains(element.image, ':') }}"
+                    operator: Equals
+                    value: false

@@ -1,0 +1,54 @@
+name: cluster
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  cluster:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      contents: write     # the test plays merged pull requests by pushing to main
+      packages: read
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: v4.3.0
+      - uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+      - name: Tools, checked against published checksums
+        run: bash ci/tools.sh
+      - name: Experiments
+        run: bash ci/cluster.sh
+
+  scorecard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.json
+          results_format: json
+          publish_results: false
+      - name: The score, check by check
+        run: |
+          python3 - <<'EOF'
+          import json
+          d = json.load(open("results.json"))
+          print("Scorecard", d.get("scorecard", {}).get("version"), "aggregate score:", d.get("score"))
+          for c in sorted(d["checks"], key=lambda c: c["score"]):
+              print(f'{c["score"]:>3}  {c["name"]:<24} {c["reason"][:110]}')
+          EOF

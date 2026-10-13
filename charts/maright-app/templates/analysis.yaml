@@ -1,0 +1,86 @@
+{{- if ne .Values.workload "deployment" }}
+{{- $name := include "maright-app.fullname" . }}
+{{- $sel := printf "namespace=\"%s\",app_kubernetes_io_instance=\"%s\",rollouts_pod_template_hash=\"{{args.canary-hash}}\",path=\"/\"" .Release.Namespace .Release.Name }}
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ $name }}-success-rate
+  labels:
+    {{- include "maright-app.labels" . | nindent 4 }}
+spec:
+  args:
+    - name: canary-hash
+  metrics:
+    - name: success-rate
+      interval: {{ .Values.analysis.interval }}
+      failureLimit: 1
+      successCondition: result[0] >= {{ .Values.analysis.minSuccessRate }}
+      provider:
+        prometheus:
+          address: {{ .Values.analysis.prometheusAddress }}
+          query: |
+            sum(rate(app_responses_total{ {{- $sel }},code!~"5.."}[{{ .Values.analysis.window }}]))
+            /
+            sum(rate(app_responses_total{ {{- $sel }}}[{{ .Values.analysis.window }}]))
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ $name }}-latency
+  labels:
+    {{- include "maright-app.labels" . | nindent 4 }}
+spec:
+  args:
+    - name: canary-hash
+  metrics:
+    - name: p95-seconds
+      interval: {{ .Values.analysis.interval }}
+      failureLimit: 1
+      successCondition: result[0] < {{ .Values.analysis.maxP95Seconds }}
+      provider:
+        prometheus:
+          address: {{ .Values.analysis.prometheusAddress }}
+          query: |
+            histogram_quantile(0.95, sum by (le) (rate(app_request_duration_seconds_bucket{ {{- $sel }}}[{{ .Values.analysis.window }}])))
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ $name }}-smoke
+  labels:
+    {{- include "maright-app.labels" . | nindent 4 }}
+spec:
+  args:
+    - name: target
+  metrics:
+    - name: smoke
+      provider:
+        job:
+          spec:
+            backoffLimit: 0
+            activeDeadlineSeconds: 120
+            template:
+              spec:
+                restartPolicy: Never
+                automountServiceAccountToken: false
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 12345
+                  seccompProfile:
+                    type: RuntimeDefault
+                containers:
+                  - name: k6
+                    image: {{ .Values.analysis.smokeImage }}
+                    args: ["run", "-q", "-e", "TARGET={{ "{{" }}args.target{{ "}}" }}", "/scripts/smoke.js"]
+                    resources:
+                      requests:
+                        cpu: 50m
+                        memory: 64Mi
+                      limits:
+                        cpu: 500m
+                        memory: 256Mi
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                        drop: ["ALL"]
+{{- end }}

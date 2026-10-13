@@ -1,0 +1,90 @@
+{{- if has .Values.workload (list "migrate" "rollout") }}
+{{- $name := include "maright-app.fullname" . }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "maright-app.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "maright-app.selectorLabels" . | nindent 6 }}
+  {{- if eq .Values.workload "migrate" }}
+  # Take over the running Deployment's pods gradually, instead of replacing them at once.
+  workloadRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $name }}
+    scaleDown: progressively
+  {{- else }}
+  template:
+    {{- include "maright-app.podTemplate" . | nindent 4 }}
+  {{- end }}
+  strategy:
+    {{- if eq .Values.rollout.strategy "blueGreen" }}
+    blueGreen:
+      activeService: {{ $name }}
+      previewService: {{ $name }}-preview
+      autoPromotionEnabled: false
+      scaleDownDelaySeconds: {{ .Values.rollout.scaleDownDelaySeconds }}
+      prePromotionAnalysis:
+        templates:
+          - templateName: {{ $name }}-smoke
+        args:
+          - name: target
+            value: http://{{ $name }}-preview.{{ .Release.Namespace }}.svc.cluster.local
+    {{- else }}
+    canary:
+      stableService: {{ $name }}
+      canaryService: {{ $name }}-canary
+      trafficRouting:
+        managedRoutes:
+          - name: testers
+        plugins:
+          argoproj-labs/gatewayAPI:
+            httpRoute: {{ $name }}
+            namespace: {{ .Release.Namespace }}
+            # Without this the plugin accepts setHeaderRoute steps and does nothing.
+            useHeaderRoutes: true
+      analysis:
+        startingStep: 2
+        templates:
+          - templateName: {{ $name }}-success-rate
+          - templateName: {{ $name }}-latency
+        args:
+          - name: canary-hash
+            valueFrom:
+              podTemplateHashValue: Latest
+      steps:
+        - setHeaderRoute:
+            name: testers
+            match:
+              - headerName: X-Canary
+                headerValue:
+                  exact: "yes"
+        - pause:
+            duration: {{ .Values.rollout.testerSeconds }}s
+        - setWeight: 20
+        - analysis:
+            templates:
+              - templateName: {{ $name }}-smoke
+            args:
+              - name: target
+                value: http://{{ $name }}-canary.{{ .Release.Namespace }}.svc.cluster.local
+        - pause:
+            duration: {{ .Values.rollout.stepSeconds }}s
+        - setWeight: 50
+        - pause:
+            duration: {{ .Values.rollout.stepSeconds }}s
+        {{- if .Values.rollout.manualPause }}
+        - pause: {}
+        {{- end }}
+        - setHeaderRoute:
+            name: testers
+    {{- end }}
+{{- end }}
